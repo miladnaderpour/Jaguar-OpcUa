@@ -73,8 +73,10 @@ class Jaguar:
         await self._softSwitchServer.originate(name)
         await node.set_value(0, ua.VariantType.Int16)
 
-    async def _handle_data_change_transfer(self, name: str, node: Node):
+    async def _handle_data_change_transfer(self, el: OpcUAElement, node: Node):
         self._logger.info('Request for call transfer to station %s', name)
+        transfer =
+        self._logger
         await self._softSwitchServer.redirect(name)
         await node.set_value(False, ua.VariantType.Boolean)
 
@@ -91,7 +93,7 @@ class Jaguar:
                 case 'CONFIRM':
                     if val:
                         self._logger.info('Try Transferring Call %s -> %s %s', name, type(val), val)
-                        await self._handle_data_change_transfer(self.elements[name].chan, node)
+                        await self._handle_data_change_transfer(self.elements[name], node)
         # self.semaphore.release()
 
     async def on_data_changed_dispatch(self, node: Node, val, data: DataChangeNotification):
