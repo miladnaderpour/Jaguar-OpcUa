@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="f95bab1f-eb94-4e25-a40b-d2d8c74af385" name="10.2.2.72">
+        <fileTransfer rootFolder="/root/Jaguar" accessType="SFTP" host="10.2.2.72" port="22" sshConfigId="e0544ad5-713b-42e8-93e4-b9435780ab29" sshConfig="root@10.2.2.72:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
