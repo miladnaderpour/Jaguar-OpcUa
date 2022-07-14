@@ -128,14 +128,14 @@ class SoftSwitchServer:
         self._logger.info('action id is: %s' % a.action_id)
         self._logger.info('end of originating call to %s' % ext)
 
-    async def redirect(self, channel: string):
-        self._logger.info('redirecting  channel  %s' % channel)
+    async def redirect(self, channel: string, to):
+        self._logger.info('redirecting  channel  %s to %s', channel, to)
         action = {
             'Action': 'Redirect',
             'Channel': channel,
             'WaitTime': 2,
             'CallerID': '',
-            'Exten': '1',
+            'Exten': '%s' % to,
             'Timeout ': 2,
             'Context': 'Transfer-Call',
             'Priority': 1,
@@ -144,6 +144,16 @@ class SoftSwitchServer:
         a: Message = await self._manager.send_action(action, False)
         self._logger.info('action status: %s' % str(a.success))
         self._logger.info('end of redirecting channel %s' % channel)
+
+    async def setvar(self, name, value):
+        self._logger.info('Setting Global Variable %s to %s', name, value)
+        action = {
+            'Action': 'Setvar',
+            'Variable': name,
+            'Value': value,
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
 
     async def get_contacts(self):
         self._logger.info('get contact status')

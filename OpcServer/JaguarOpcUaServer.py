@@ -2,7 +2,8 @@ import asyncio
 import configparser
 import logging
 
-from asyncua import ua, Server, Node
+from asyncua import ua, Server
+from asyncua.common import Node
 
 from OpcuaBase.OpcUaSubcription import OpcUaSubscriptionHandler
 
@@ -81,9 +82,9 @@ class JaguarOpcUaServer:
     async def add_object(self, name) -> Node:
         return await self._server.nodes.objects.add_object(self._idx, name)
 
-    async def add(self, nodeid, node: Node, name, value, var_type: ua.VariantType, writable=True) -> Node:
-
-        var = await node.add_variable(self._idx, name, value, var_type)
+    async def add(self, identifier, node: Node, name, value, var_type: ua.VariantType, writable=True) -> Node:
+        nodeid = ua.NodeId(identifier, self._idx)
+        var = await node.add_variable(nodeid, name, value, var_type)
         if writable:
             await var.set_writable()
         return var
