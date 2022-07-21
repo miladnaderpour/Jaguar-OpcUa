@@ -3,7 +3,7 @@ import configparser
 import logging
 
 from asyncua import ua, Server
-from asyncua.common import Node
+from asyncua.common import Node, subscription
 
 from OpcuaBase.OpcUaSubcription import OpcUaSubscriptionHandler
 
@@ -59,18 +59,6 @@ class JaguarOpcUaServer:
         await self._server.set_application_uri(server_config['uri'])
         self.idx = self._idx
 
-        # Create Subscription Handler
-        self._logger.info('Create Subscription Handler')
-        await self._create_data_subscription()
-
-    async def _create_data_subscription(self):
-        self._logger.info('Wait For Subscription Handler ...')
-        self._handler = OpcUaSubscriptionHandler()
-        self.Subscription = await self._server.create_subscription(500, self._handler)
-
-    def on_data_changed(self, callback):
-        self._handler.on_data_changed(callback)
-
     async def start(self):
         async with self._server:
             while self._alive:
@@ -91,3 +79,8 @@ class JaguarOpcUaServer:
 
     async def add_folder(self, name) -> Node:
         return await self._server.nodes.objects.add_folder(self._idx, name)
+
+    async def create_data_subscription(self, handler: OpcUaSubscriptionHandler) -> subscription:
+        self._logger.info('Create Subscription Handler')
+        s = await self._server.create_subscription(500, handler)
+        return s

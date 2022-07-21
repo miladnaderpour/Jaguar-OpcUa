@@ -62,6 +62,7 @@ class SoftSwitchServer:
         # Basic Configuration
         self._alive = True
         self._on_status_changed_subscribers = set()
+        self._on_conference_status_changed_subscribers = set()
 
     def init_server(self):
         self._host = self._server_config['host']
@@ -96,17 +97,21 @@ class SoftSwitchServer:
 
         elif message.Event == 'ContactList':
             self._logger.info('%s is %s (ip:%s)' % (message.Endpoint, message.Status, message.ViaAddr))
+            await self._extension_peer_status_changed_dispatch(message.Endpoint, message.Status)
+
+        elif message.Event == 'ContactListComplete':
+            self._logger.info(message)
 
     def __init_events(self):
         self._manager.on_connect = on_connect
         self._manager.on_disconnect = on_disconnect
         self._manager.on_login = on_login
-        # self._manager.register_event('Hangup*', hangup_callback)
-        # self._manager.register_event('NewChannel*', new_channel_callback)
         self._manager.register_event('*', self.universal_callback)
+        self._manager.register_event('Confbridge*', self._conference_status_changed)
 
     async def start(self):
         await self._manager.connect()
+        await self.get_contacts()
         while self._alive:
             await asyncio.sleep(1)
 
@@ -155,6 +160,76 @@ class SoftSwitchServer:
         a: Message = await self._manager.send_action(action, False)
         self._logger.info('action status: %s' % str(a.success))
 
+    async def paging_live(self, extensions: [str]):
+        self._logger.info(' start Live Paging...')
+        for ext in extensions:
+            self._logger.info('Start Pager %s', ext)
+            action = {
+                'Action': 'Originate',
+                'Channel': 'Local/1@Paging-pager',
+                'WaitTime': 2,
+                'CallerID': 'Paging...',
+                'Exten': '1',
+                'Timeout ': 2,
+                'Context': 'Paging-Start',
+                'Priority': 1,
+                'Async': True,
+                'Variable': 'pext = {%s}' % ext
+            }
+            a: Message = await self._manager.send_action(action, False)
+            self._logger.info('action status: %s' % str(a.success))
+            self._logger.info('action id is: %s' % a.action_id)
+            self._logger.info('end of Live Paging')
+            await asyncio.sleep(1)
+
+    async def paging_live_master(self, extension):
+        self._logger.info(' start Live Paging master...')
+        self._logger.info('Start Master Pager %s', extension)
+        action = {
+            'Action': 'Originate',
+            'Channel': 'Local/1@Paging-Master',
+            'WaitTime': 2,
+            'CallerID': 'Paging...',
+            'Exten': '1',
+            'Timeout ': 2,
+            'Context': 'Paging-Start',
+            'Priority': 1,
+            'Async': True,
+            'Variable': 'pext = {%s}' % extension
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
+        self._logger.info('action id is: %s' % a.action_id)
+        self._logger.info('end of Live Master Paging')
+
+    async def paging_stop_live(self):
+        self._logger.info('Stop Live Paging...')
+        action = {
+            'Action': 'Command',
+            'Command': 'confbridge kick 8 all'
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
+        self._logger.info('action id is: %s' % a.action_id)
+        self._logger.info('end of Stop Live Paging...')
+
+    async def paging_live_test(self):
+        self._logger.info(' start Live Paging test ...')
+        action = {
+            'Action': 'Originate',
+            'Channel': 'Local/1@Paging-Test',
+            'WaitTime': 15000,
+            'CallerID': 'Paging...',
+            'Application': 'Playback',
+            'Data': 'PreRecordedMessage/Pre-Recorded-4&PreRecordedMessage/Pre-Recorded-3&PreRecordedMessage/Pre'
+                    '-Recorded-2&tt-weasels',
+            'Async': True
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
+        self._logger.info('action id is: %s' % a.action_id)
+        self._logger.info('end of Live Paging')
+
     async def get_contacts(self):
         self._logger.info('get contact status')
         a: Message = await self._manager.send_action({'Action': 'PJSIPShowContacts'}, False)
@@ -162,6 +237,9 @@ class SoftSwitchServer:
 
     def on_extension_status_changed(self, call_back):
         self._on_status_changed_subscribers.add(call_back)
+
+    def on_conference_status_changed(self, call_back):
+        self._on_conference_status_changed_subscribers.add(call_back)
 
     async def _extension_status_changed_dispatch(self, channel: string, state, chanel):
         match state:
@@ -188,3 +266,33 @@ class SoftSwitchServer:
 
         for callback in self._on_status_changed_subscribers:
             await callback(channel, status, '')
+
+    async def _conference_status_changed(self, manager: Manager, message: Message):
+
+        num = message.BridgeNumChannels
+        channel = ''
+        match message.Event:
+            case 'ConfbridgeStart':
+                self._logger.info('Conf Bridge Info (Start): Bridge %s Channels: %s Conference:%s',
+                                  message.BridgeName, num, message.Conference)
+                event = 'Start'
+            case 'ConfbridgeEnd':
+                self._logger.info('Conf Bridge Info (End): Bridge %s Channels: %s Conference:%s',
+                                  message.BridgeName, num, message.Conference)
+                event = 'End'
+            case 'ConfbridgeJoin':
+                channel = get_channel_extension(message.Channel)
+                self._logger.info('Conf Bridge Info (Join): channel %s joined to %s Channels: %s Conference:%s - ',
+                                  channel, message.BridgeName, num, message.Conference)
+                event = 'Join'
+
+            case 'ConfbridgeLeave':
+                channel = get_channel_extension(message.Channel)
+                self._logger.info('Conf Bridge Info (Join): channel %s joined to %s Channels: %s Conference:%s - ',
+                                  channel, message.BridgeName, num, message.Conference)
+                event = 'Leave'
+            case _:
+                event = ''
+
+        for callback in self._on_conference_status_changed_subscribers:
+            await callback(event, num, channel)
