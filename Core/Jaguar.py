@@ -7,9 +7,9 @@ from asyncua.common import subscription
 from asyncua.ua import DataChangeNotification, VariantType
 
 from OpcServer.JaguarOpcUaServer import JaguarOpcUaServer
-from OpcuaBase import OpcUaElementType
 from OpcuaBase.OpcElementFactory import OpcElementFactory
 from OpcuaBase.OpcUaElement import OpcUaElement
+from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaParameter import OpcUaParameter
 from OpcuaBase.OpcUaSubcription import OpcUaSubscriptionHandler
@@ -43,6 +43,7 @@ class Jaguar:
         self.paging_subscription_handler: OpcUaSubscriptionHandler
         self.paging_zone_subscription: subscription
         self.paging_zone_subscription_handler: OpcUaSubscriptionHandler
+        self.elements_status_group: OpcUaElementGroupStatus
 
     async def _init_elements(self):
         self._logger.info('create opcua elements')
@@ -53,6 +54,8 @@ class Jaguar:
         self.parameters = await factory.get_parameters()
         self._logger.info('create opcua paging elements')
         self.paging = await factory.get_paging()
+        self._logger.info('create opcua status groups')
+        self.elements_status_group = await factory.get_elements_status_group()
 
     async def _create_subscriptions(self):
 
@@ -113,17 +116,16 @@ class Jaguar:
 
     async def on_paging_data_changed(self, node: Node, val, data: DataChangeNotification):
         bname = await node.read_browse_name()
-        self._logger.info('Paging %s changed ')
+        self._logger.info('Paging %s changed (value=%s)', bname.Name, val)
         match bname.Name:
             case 'Paging-Live':
-                if val:
-                    await self._handle_paging_live(node, val)
+                await self._handle_paging_live(node, val)
             case 'Paging-Live-Test':
                 if val:
                     await self._handle_paging_live_test(node, val)
-            case 'Broadcasting_Message':
+            case 'Broadcasting-Message':
                 await self._handle_paging_message_broadcasting(node, val)
-            case 'Semiautomatic_Paging':
+            case 'Semiautomatic-Paging':
                 await self._handle_paging_semiautomatic(node, val)
 
     async def on_parameter_data_changed(self, node: Node, val, data: DataChangeNotification):
@@ -162,6 +164,15 @@ class Jaguar:
         self._logger.info('init soft switch connector...')
         self._softSwitchServer.init_server()
 
+    async def _change_element_group_status(self, ext, value):
+        match value:
+            case 2:
+                await self.elements_status_group.set_extension_status(ext, True)
+            case 4:
+                await self.elements_status_group.set_extension_status(ext, True)
+            case _:
+                await self.elements_status_group.set_extension_status(ext, False)
+
     async def _change_element_status(self, ext, value, chanel):
         await self.semaphore.acquire()
         el = next((x for x in self.elements if self.elements[x].Extension == ext), None)
@@ -169,6 +180,7 @@ class Jaguar:
             self._logger.info('change Element %s value to %s (Chanel ID: %s)' % (self.elements[el].Name, value,
                                                                                  chanel))
             await self.elements[el].Status.set_value(value, ua.VariantType.Byte)
+            await self._change_element_group_status(ext, value)
             self.elements[el].chan = chanel
         self.semaphore.release()
         return False
@@ -177,19 +189,20 @@ class Jaguar:
 
         match event:
             case 'Start':
-                await self.paging.Status.set_value('Paging', VariantType.String)
-                await self.paging.Status_Code.set_value(2, VariantType.Byte)
+                self._logger.info('Paging Conf Started')
+                await self.paging.update_status()
             case 'End':
+                self._logger.info('Paging Conf Finished')
                 await self.paging.Active_Channels.set_value(0, VariantType.Int16)
-                await self.paging.Status.set_value('Ready...', VariantType.String)
-                await self.paging.Status_Code.set_value(1, VariantType.Byte)
+                await self.paging.reset_new_status()
+                await self.paging.update_status()
             case 'Join':
                 await self.paging.Active_Channels.set_value(int(num), VariantType.Int16)
             case 'Leave':
                 await self.paging.Active_Channels.set_value(int(num), VariantType.Int16)
 
     async def extension_status_changed(self, channel, status: ExtensionStatus, chanel):
-        self._logger.info('%s state changed to : %s' % (channel, str(status)))
+        self._logger.info('%s state changed to : %s', channel, str(status))
         await self._change_element_status(channel, status.value, chanel)
 
     async def paging_status_changed(self, event: str, num: str, channel: str):
@@ -249,6 +262,7 @@ class Jaguar:
 
     async def _start_paging_live(self):
         self._logger.info('Request for Live paging...')
+        self.paging.Paging_APP_Live_New_Status = True
         mst = self._get_master_operator()
         if mst is None:
             self._logger.info('Master not found !')
@@ -257,14 +271,11 @@ class Jaguar:
         ext = self._get_active_zones_extensions()
         await self._softSwitchServer.paging_live(ext)
         await self._softSwitchServer.paging_live_master(mst)
-        await self.paging.Live_Status.set_value(True, VariantType.Boolean)
-        await self.paging.Status.set_value('Live', VariantType.String)
 
     async def _stop_paging_live(self):
         self._logger.info('Request for stopping Live paging...')
+        self.paging.Paging_APP_Live_New_Status = False
         await self._softSwitchServer.paging_stop_live()
-        await self.paging.Live_Status.set_value(False, VariantType.Boolean)
-        await self.paging.Status.set_value('Ready', VariantType.String)
 
     async def _handle_paging_live(self, node: Node, val):
         if val:
@@ -277,10 +288,40 @@ class Jaguar:
         await self._softSwitchServer.paging_live_test()
         await node.set_value(False, VariantType.Boolean)
 
+    async def broadcast_message_broadcasting(self, is_admin: bool = False):
+        await self._softSwitchServer.broadcast_message('PreRecordedMessage/Pre-Recorded-4&PreRecordedMessage/Pre'
+                                                       '-Recorded-3&PreRecordedMessage/Pre'
+                                                       '-Recorded-2&tt-weasels', is_admin)
+
+    async def _start_message_broadcasting_on_live(self):
+        self._logger.info('Request for starting message broadcasting on live...')
+        await self.broadcast_message_broadcasting()
+
+    async def _start_message_broadcasting(self):
+        self._logger.info('Request for starting message broadcasting...')
+        self._logger.info('message broadcasting - Live Status:%s', self.paging.Paging_APP_Live_Status)
+        self.paging.Paging_APP_Broadcast_New_Status = True
+        if self.paging.Paging_APP_Live_Status:
+            await self._start_message_broadcasting_on_live()
+            return
+        mst = self._get_master_operator()
+        ext = self._get_active_zones_extensions()
+        await self._softSwitchServer.paging_live(ext)
+        await self._softSwitchServer.paging_live([mst])
+        await asyncio.sleep(1)
+        await self.broadcast_message_broadcasting(True)
+
+    async def _stop_message_broadcasting(self):
+        self._logger.info('Request for stopping message broadcasting...')
+        self.paging.Paging_APP_Broadcast_New_Status = False
+        if self.paging.Paging_APP_Live_Status:
+            await self._softSwitchServer.paging_stop_live()
+
     async def _handle_paging_message_broadcasting(self, node: Node, val):
-        self._logger.info('Request for message broadcasting...')
-        await node.set_value(False, VariantType.Boolean)
-        await asyncio.sleep(2)
+        if val:
+            await self._start_message_broadcasting()
+        else:
+            await self._stop_message_broadcasting()
 
     async def _handle_paging_semiautomatic(self, node: Node, val):
         self._logger.info('request for start semi-automatic paging...')

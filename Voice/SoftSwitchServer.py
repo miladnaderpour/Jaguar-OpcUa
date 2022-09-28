@@ -174,7 +174,7 @@ class SoftSwitchServer:
                 'Context': 'Paging-Start',
                 'Priority': 1,
                 'Async': True,
-                'Variable': 'pext = {%s}' % ext
+                'Variable': 'var1=%s' % ext
             }
             a: Message = await self._manager.send_action(action, False)
             self._logger.info('action status: %s' % str(a.success))
@@ -195,7 +195,7 @@ class SoftSwitchServer:
             'Context': 'Paging-Start',
             'Priority': 1,
             'Async': True,
-            'Variable': 'pext = {%s}' % extension
+            'Variable': 'var1=%s' % extension
         }
         a: Message = await self._manager.send_action(action, False)
         self._logger.info('action status: %s' % str(a.success))
@@ -229,6 +229,23 @@ class SoftSwitchServer:
         self._logger.info('action status: %s' % str(a.success))
         self._logger.info('action id is: %s' % a.action_id)
         self._logger.info('end of Live Paging')
+
+    async def broadcast_message(self, message_no: str, is_admin: bool = False):
+        self._logger.info(' start broadcast message ...')
+        action = {
+            'Action': 'Originate',
+            'Channel': 'Local/1@Paging-app',
+            'WaitTime': 15000,
+            'CallerID': 'Paging...',
+            'Application': 'Playback',
+            'Data': '%s' % message_no,
+            'Async': True,
+            'Variable': 'is_admin=%s' % is_admin
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
+        self._logger.info('action id is: %s' % a.action_id)
+        self._logger.info('end of message broadcasting')
 
     async def get_contacts(self):
         self._logger.info('get contact status')

@@ -8,6 +8,7 @@ from asyncua.ua import VariantType
 
 from OpcServer.JaguarOpcUaServer import JaguarOpcUaServer
 from OpcuaBase.OpcUaElement import OpcUaElement
+from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaElementType import OpcUaElementType
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
@@ -48,6 +49,13 @@ def get_parameter_configs(config: str) -> [Any, VariantType, int]:
     return [config, VariantType.String]
 
 
+def get_status_group_index(config: str) -> (str, int):
+    sp = str(config).split(',')
+    if len(sp) == 2:
+        return sp[0], int(sp[1])
+    return '-', -1
+
+
 class OpcElementFactory:
     Parameters: Dict[str, OpcUaParameter]
 
@@ -69,7 +77,7 @@ class OpcElementFactory:
         identifier = int(ext) * 10
         el.Main = await parent.add_folder(self._server.idx, f'{name}')
         el.Status = await self._server.add(identifier + 1, el.Main, f'{name}-ST', 16, VariantType.Byte)
-        el.Call = await self._server.add(identifier + 2, el.Main, f'{name}-CALL', 0, VariantType.Int16)
+        el.Call = await self._server.add(identifier + 2, el.Main, f'{name}-CALL', 0, VariantType.Boolean)
         el.Confirm = await self._server.add(identifier + 3, el.Main, f'{name}-CONFIRM', 0, VariantType.Boolean)
         el.Transfer = await self._server.add(identifier + 4, el.Main, f'{name}-TRANSFER', '', VariantType.String)
         el.PickUP = await self._server.add(identifier + 5, el.Main, f'{name}-PICKUP', 0, VariantType.Boolean)
@@ -189,3 +197,25 @@ class OpcElementFactory:
                 else:
                     self._logger.error(f'Paging Zone {x} is exist in Dictionary')
         return pel
+
+    async def _check_group_status(self, el: OpcUaElementGroupStatus, parent: Node, group: str):
+        if group not in el.Status_Group:
+            self._logger.info('Group %s not exist. Create group %s node', group, group)
+            node = await self._server.add(el.Identifier, parent, f'groupST{group}', 0, VariantType.Byte)
+            el.add_group(group, node)
+
+    async def _create_element_status(self, extension: str, config: str, status: OpcUaElementGroupStatus, parent: Node):
+        (group, index) = get_status_group_index(config)
+        if group != '-':
+            await self._check_group_status(status, parent, group)
+            self._logger.info('Add Extension %s to Group %s with index %s', extension, group, index)
+            status.add(extension, group, index)
+
+    async def get_elements_status_group(self) -> OpcUaElementGroupStatus:
+        config = self._config['Extensions Status Group']
+        parent = await self._server.add_folder('GroupStatus')
+        status = OpcUaElementGroupStatus()
+        for x in config:
+            if config[x] != '0':
+                await self._create_element_status(x, config[x], status, parent)
+        return status
