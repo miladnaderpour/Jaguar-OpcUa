@@ -5,6 +5,7 @@ from asyncua import Node
 from asyncua.ua import VariantType
 
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
+from OpcuaBase.OpcUaPreRecordedMessage import OpcUaPreRecordedMessage
 
 
 class OpcUaPaging:
@@ -29,6 +30,8 @@ class OpcUaPaging:
     Semiautomatic_Paging_Delay: Node
     Semiautomatic_Paging_Repetition_Status: Node
 
+    PreRecordedMessages: Dict[int, OpcUaPreRecordedMessage]
+
     Zones: Dict[str, OpcUaPagingZone]
 
     Paging_APP_Status: int = 1
@@ -40,15 +43,19 @@ class OpcUaPaging:
     Paging_APP_Broadcast_New_Status: bool = False
     Paging_APP_Semi_Automatic_New_Status: bool = False
 
+    Paging_APP_Broadcast_FileName: str = ''
+
     def __init__(self):
         self.Zones = {}
+        self.PreRecordedMessages = {}
         self._logger = logging.getLogger('Jaguar-Paging')
 
     def get_nodes(self):
         return [self.Live,
                 self.Live_Test,
                 self.Broadcasting_Message,
-                self.Semiautomatic_Paging]
+                self.Semiautomatic_Paging,
+                self.Broadcasting_Message_No]
 
     def get_zones(self):
         x = []
@@ -127,6 +134,13 @@ class OpcUaPaging:
             self.Paging_APP_Semi_Automatic_Status = status
             await self.Semiautomatic_Paging_Status.set_value(status, VariantType.Boolean)
             await self.Semiautomatic_Paging.set_value(status, VariantType.Boolean)
+
+    async def set_pre_recorded_message(self):
+        mm = await self.Broadcasting_Message_No.get_value()
+        if mm in self.PreRecordedMessages.keys():
+            msg = self.PreRecordedMessages[mm]
+            await self.Broadcasting_Message_Message.set_value(msg.Title, VariantType.String)
+            self.Paging_APP_Broadcast_FileName = msg.FileName
 
     def log_status(self):
         self._logger.info('Paging_APP_Status = %s', self.Paging_APP_Status)

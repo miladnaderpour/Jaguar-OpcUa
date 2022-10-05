@@ -7,12 +7,14 @@ from asyncua import ua, Node
 from asyncua.ua import VariantType
 
 from OpcServer.JaguarOpcUaServer import JaguarOpcUaServer
+from OpcuaBase.OpcUaCalling import OpcUaCalling
 from OpcuaBase.OpcUaElement import OpcUaElement
 from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaElementType import OpcUaElementType
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
 from OpcuaBase.OpcUaParameter import OpcUaParameter
+from OpcuaBase.OpcUaPreRecordedMessage import OpcUaPreRecordedMessage
 
 
 def get_element_config(config: str) -> [str, str, str]:
@@ -30,6 +32,13 @@ def get_zone_location(config: str) -> [str, str, str, List[str]]:
         for x in els:
             elm.append(x)
     return [rs.group('location'), rs.group('zone'), rs.group('group'), elm]
+
+
+def get_pre_record_filename(config: str) -> [str, str]:
+    sp = str(config).split(',')
+    if len(sp) == 2:
+        return [sp[0], sp[1]]
+    return ['Not Define', '']
 
 
 def get_parameter_configs(config: str) -> [Any, VariantType, int]:
@@ -185,6 +194,7 @@ class OpcElementFactory:
 
     async def get_paging(self) -> OpcUaPaging:
         config = self._config['Paging Zone']
+        config2 = self._config['PreRecordedMessage']
         parent = await self._server.add_folder('Paging')
         pel = await self._create_paging_element(parent)
         identifier = 6100
@@ -196,6 +206,42 @@ class OpcElementFactory:
                     identifier += 1
                 else:
                     self._logger.error(f'Paging Zone {x} is exist in Dictionary')
+        for y in config2:
+            if config2[y] != '0':
+                index = int(y)
+                [title, filename] = get_pre_record_filename(config2[y])
+                pel.PreRecordedMessages[index] = OpcUaPreRecordedMessage(index, title, filename)
+        return pel
+
+    async def _create_calling_element(self, parent: Node) -> OpcUaCalling:
+        pg = OpcUaCalling()
+        pg.Call_PreRecord_Message = await self._server.add(7000, parent, 'Call_PreRecord_Message', False,
+                                                           VariantType.Boolean,
+                                                           True)
+        pg.Call_PreRecord_Message_No = await self._server.add(7001, parent, 'Call_PreRecord_Message_No', 1,
+                                                              VariantType.Int16, True)
+        pg.Call_PreRecord_Message_Message = await self._server.add(7002, parent, 'Call_PreRecord_Message_Message',
+                                                                   'Message', VariantType.String, True)
+        pg.Call_PreRecord_Message_Status = await self._server.add(7003, parent, 'Call_PreRecord_Message_Status', False,
+                                                                  VariantType.Boolean, True)
+        pg.Call_Group_Calling = await self._server.add(7010, parent, 'Call_Group_Calling', False, VariantType.Boolean,
+                                                       True)
+        pg.Call_Group_Calling_Group_No = await self._server.add(7011, parent, 'Call_Group_Calling_Group_No', 1,
+                                                                VariantType.Int16, True)
+        pg.Call_Group_Calling_Status = await self._server.add(7012, parent, 'Call_Group_Calling_Status', False,
+                                                              VariantType.Boolean, True)
+        return pg
+
+    async def get_calling(self) -> OpcUaCalling:
+        # config = self._config['Calling']
+        config2 = self._config['Announcements']
+        parent = await self._server.add_folder('Calling')
+        pel = await self._create_calling_element(parent)
+        for y in config2:
+            if config2[y] != '0':
+                index = int(y)
+                [title, filename] = get_pre_record_filename(config2[y])
+                pel.PreRecordedMessages[index] = OpcUaPreRecordedMessage(index, title, filename)
         return pel
 
     async def _check_group_status(self, el: OpcUaElementGroupStatus, parent: Node, group: str):
