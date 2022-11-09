@@ -1,12 +1,13 @@
 import asyncio
+import datetime
 import logging
-from asyncio import Task
 from typing import Dict
 
 from asyncua import ua, Node
 from asyncua.common import subscription
 from asyncua.ua import DataChangeNotification, VariantType
 
+from Core.WebSocketServer import WebSocketServer
 from OpcServer.JaguarOpcUaServer import JaguarOpcUaServer
 from OpcuaBase.OpcElementFactory import OpcElementFactory
 from OpcuaBase.OpcUaCalling import OpcUaCalling
@@ -33,6 +34,7 @@ class Jaguar:
         self._logger = logging.getLogger('Jaguar')
         self._opcUaServer = JaguarOpcUaServer()
         self._softSwitchServer = SoftSwitchServer()
+        self._socketServer = WebSocketServer()
         self.elements: Dict[str, OpcUaElement]
         self.elements_subscription: subscription
         self.elements_subscription_handler: OpcUaSubscriptionHandler
@@ -153,9 +155,9 @@ class Jaguar:
         bname = await node.read_browse_name()
         self._logger.info('Calling %s changed (value=%s)', bname.Name, val)
         match bname.Name:
-            case 'Call_PreRecord_Message':
+            case 'Call-PreRecord-Message':
                 await self._handle_calling_change(val)
-            case 'Call_PreRecord_Message_No':
+            case 'Call-PreRecord-Message-No':
                 await self._handle_calling_message_change()
 
     async def on_parameter_data_changed(self, node: Node, val, data: DataChangeNotification):
@@ -240,6 +242,11 @@ class Jaguar:
         self._logger.info('paging state changed to : %s  num of channels=%s', event, num)
         await self._change_paging_status(event, num, channel)
 
+    async def queue_caller_status_changed(self, caller: str, channel: str, position: str, status):
+        self._logger.info('Queue Caller %s state changed to : %s --- Channel %s Position: %s', caller, str(status),
+                          channel, position)
+        await self._change_element_status(caller, status.value, channel)
+
     async def _handle_data_change_call(self, extension: str, node: Node):
         self._logger.info('Request for call origination to station %s', extension)
         await self._softSwitchServer.originate(extension)
@@ -266,6 +273,10 @@ class Jaguar:
                     if val:
                         self._logger.info('Try Transferring Call %s -> %s %s', name, type(val), val)
                         await self._handle_data_change_transfer(self.elements[name], node)
+                case 'PICKUP':
+                    if val:
+                        self._logger.info('Try PICKUP Station %s CALL', name)
+                        await self._handle_data_change_call(self.elements[name].Extension, node)
         # self.semaphore.release()
 
     async def _handle_parameter_change(self, name: str, node: Node, val):
@@ -280,8 +291,10 @@ class Jaguar:
         await self.calling.set_announcement(val)
         if val:
             await self._softSwitchServer.setvar('Stations_Pre_Recorded_Message_ON', 'True')
+            await self.calling.Call_PreRecord_Message_Status.set_value(True, VariantType.Boolean)
         else:
             await self._softSwitchServer.setvar('Stations_Pre_Recorded_Message_ON', 'False')
+            await self.calling.Call_PreRecord_Message_Status.set_value(False, VariantType.Boolean)
 
     async def _handle_calling_message_change(self, ):
         self._logger.info('Calling announcement changed!')
@@ -365,27 +378,34 @@ class Jaguar:
         self._logger.info('Changing Pre recorded message!')
         await self.paging.set_pre_recorded_message()
 
-    async def broadcast_semi_auto_broadcasting(self, count: int, delay: int):
+    async def broadcast_semi_auto_broadcasting(self, count: int, delay: int, filename: str):
         self._logger.info(f'starting message Semi Auto broadcasting for {count} message each {delay}s')
         for c in range(1, count + 1):
             admin = c == count
             self._logger.info(f'broadcasting {c} of {count} - admin is {admin}')
-            await self._softSwitchServer.broadcast_message('PreRecordedMessage/Pre-Recorded-4', admin)
+            self._logger.info(f'broadcasting Start At {datetime.datetime.now()}')
+            await self.paging.Semiautomatic_Paging_Repetition_Status.set_value(f'{c} Of {count}', VariantType.String)
+            await self._softSwitchServer.broadcast_message(filename, admin)
+            self._logger.info(f'broadcasting finished At {datetime.datetime.now()}')
             await asyncio.sleep(delay)
+            self._logger.info(f'Delayed At {datetime.datetime.now()}')
 
     async def _start_semi_auto_broadcasting(self):
         self._logger.info('Request for starting message Semi Auto broadcasting...')
         if not self.paging.Paging_APP_Semi_Automatic_Status:
             self.paging.Paging_APP_Semi_Automatic_New_Status = True
+            await self.paging.Semiautomatic_Paging_Repetition_Status.set_value('Start Paging', VariantType.String)
             mst = self._get_master_operator()
-            # ext = self._get_active_zones_extensions()
-            # await self._softSwitchServer.paging_live(ext)
+            ext = self._get_active_zones_extensions()
+            await self._softSwitchServer.paging_live(ext)
             await self._softSwitchServer.paging_live([mst])
             c = await self.paging.Semiautomatic_Paging_No_Repetitions.get_value()
             d = await self.paging.Semiautomatic_Paging_Delay.get_value()
             self._logger.info(f'Semi Auto broadcasting message {c} times each {d}')
+            filename = self.paging.Paging_APP_Broadcast_FileName
+            self._logger.info(f'paging file: {filename}')
             await asyncio.sleep(1)
-            await self.broadcast_semi_auto_broadcasting(c, d)
+            await self.broadcast_semi_auto_broadcasting(c, d, filename)
 
     async def _stop_semi_auto_broadcasting(self):
         self._logger.info('Request for stopping message Semi Auto broadcasting...')
@@ -409,10 +429,12 @@ class Jaguar:
     async def _init_events(self):
         self._softSwitchServer.on_extension_status_changed(self.extension_status_changed)
         self._softSwitchServer.on_conference_status_changed(self.paging_status_changed)
+        self._softSwitchServer.on_queue_caller_status_changed(self.queue_caller_status_changed)
 
     def _start_services(self):
         self._opcua_task = asyncio.create_task(self._opcUaServer.start())
         self._soft_switch_task = asyncio.create_task(self._softSwitchServer.start())
+        self._socket_task = asyncio.create_task(self._socketServer.run())
 
     async def start(self):
         if self.loop is None:
@@ -424,3 +446,4 @@ class Jaguar:
         await self._init_events()
         await self._soft_switch_task
         await self._opcua_task
+        await self._socket_task

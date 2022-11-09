@@ -1,0 +1,15 @@
+[Unit]
+Description=The Jaguar OPCUA Application Server
+After=syslog.target network.target
+
+[Service]
+EnvironmentFile=-/etc/jaguar/jaguar.conf
+User=root
+Restart=on-failure
+LimitNOFILE=102642
+PIDFile=/var/run/jaguar/jaguar.pid
+ExecStart=/bin/bash -c 'cd /usr/local/Jaguar/ && ./venv/bin/python ./main.py'
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target

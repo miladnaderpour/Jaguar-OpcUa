@@ -63,6 +63,7 @@ class SoftSwitchServer:
         self._alive = True
         self._on_status_changed_subscribers = set()
         self._on_conference_status_changed_subscribers = set()
+        self._on_queue_caller_status_changed_subscribers = set()
 
     def init_server(self):
         self._host = self._server_config['host']
@@ -75,17 +76,19 @@ class SoftSwitchServer:
         self.__init_events()
 
     async def universal_callback(self, manager: Manager, message: Message):
+        # if message.Event != 'ChallengeSent' or message.Event != 'SuccessfulAuth' or message.Event != 'RTCPSent':
+        #   self._logger.info(f'--*************---Event: {message.Event}  Num:{message.CallerIDNum}')
         if message.Event == 'PeerStatus':
             self._logger.info('%s state changed to : %s' % (message.Peer, message.PeerStatus))
             await self._extension_peer_status_changed_dispatch(str(message.Peer).split("/")[1],
                                                                message.PeerStatus)
         elif message.Event == 'Newstate':
-            self._logger.info(message)
+            # self._logger.info(message)
             self._logger.info('%s state changed to : %s' % (message.Channel, message.ChannelStateDesc))
             await self._extension_status_changed_dispatch(get_channel_extension(message.Channel),
                                                           message.ChannelStateDesc, message.Channel)
         elif message.Event == 'Hangup':
-            self._logger.info(message)
+            # self._logger.info(message)
             self._logger.info('%s state changed to : Hang up (%s)' % (message.Channel, message.Cause))
             await self._extension_status_changed_dispatch(get_channel_extension(message.Channel), 'Hangup', '')
 
@@ -108,6 +111,7 @@ class SoftSwitchServer:
         self._manager.on_login = on_login
         self._manager.register_event('*', self.universal_callback)
         self._manager.register_event('Confbridge*', self._conference_status_changed)
+        self._manager.register_event('Queue*', self._queue_status_changed)
 
     async def start(self):
         await self._manager.connect()
@@ -177,8 +181,8 @@ class SoftSwitchServer:
                 'Variable': 'var1=%s' % ext
             }
             a: Message = await self._manager.send_action(action, False)
-            self._logger.info('action status: %s' % str(a.success))
-            self._logger.info('action id is: %s' % a.action_id)
+            # self._logger.info('action status: %s' % str(a.success))
+            # self._logger.info('action id is: %s' % a.action_id)
             self._logger.info('end of Live Paging')
             await asyncio.sleep(1)
 
@@ -243,8 +247,8 @@ class SoftSwitchServer:
             'Variable': 'is_admin=%s' % is_admin
         }
         a: Message = await self._manager.send_action(action, False)
-        self._logger.info('action status: %s' % str(a.success))
-        self._logger.info('action id is: %s' % a.action_id)
+        # self._logger.info('action status: %s' % str(a.success))
+        # self._logger.info('action id is: %s' % a.action_id)
         self._logger.info('end of message broadcasting')
 
     async def get_contacts(self):
@@ -257,6 +261,9 @@ class SoftSwitchServer:
 
     def on_conference_status_changed(self, call_back):
         self._on_conference_status_changed_subscribers.add(call_back)
+
+    def on_queue_caller_status_changed(self, call_back):
+        self._on_queue_caller_status_changed_subscribers.add(call_back)
 
     async def _extension_status_changed_dispatch(self, channel: string, state, chanel):
         match state:
@@ -313,3 +320,48 @@ class SoftSwitchServer:
 
         for callback in self._on_conference_status_changed_subscribers:
             await callback(event, num, channel)
+
+    async def _queue_status_changed(self, manager: Manager, message: Message):
+        self._logger.info('Queue Event')
+        self._logger.info(f' Queue ------ : {message}')
+        match message.Event:
+            case 'QueueCallerJoin':
+                # channel = get_channel_extension(message.Channel)
+                self._logger.critical('* New Caller (Queue): Extension %s in Position: %s ',
+                                      message.CallerIDNum, message.Position)
+                await self._queue_caller_status_changed(message.CallerIDNum, message.Channel, message.Position, 'Join')
+
+            case 'QueueCallerLeave':
+                channel = get_channel_extension(message.Channel)
+                self._logger.critical('* Caller Leave (Queue): Extension %s in Position: %s ',
+                                      message.CallerIDNum, message.Position)
+                await self._queue_caller_status_changed(message.CallerIDNum, message.Channel, message.Position, 'Leave')
+
+            case 'QueueCallerAbandon':
+                channel = get_channel_extension(message.Channel)
+                self._logger.warning('* Caller Abandon (Queue): Extension %s in Position: %s HoldTime: %ss',
+                                     message.CallerIDNum, message.Position, message.HoldTime)
+                await self._queue_caller_status_changed(message.CallerIDNum, message.Channel, message.Position,
+                                                        'Abandon')
+
+            case 'QueueMemberStatus':
+                self._logger.info('* Operator Status (Queue): Operator %s Changed to %s',
+                                  message.Interface, message.Status)
+                event = 'MemberStatus'
+
+            case _:
+                event = ''
+
+    async def _queue_caller_status_changed(self, caller: str, channel: str, position: str, state):
+        match state:
+            case 'Join':
+                status = ExtensionStatus.OnHold
+            case 'Leave':
+                status = ExtensionStatus.Up
+            case 'Abandon':
+                status = ExtensionStatus.OnHook
+            case _:
+                status = ExtensionStatus.Up
+
+        for callback in self._on_queue_caller_status_changed_subscribers:
+            await callback(caller, channel, position, status)

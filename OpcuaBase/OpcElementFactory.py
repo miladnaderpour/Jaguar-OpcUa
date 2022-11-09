@@ -91,6 +91,7 @@ class OpcElementFactory:
         el.Transfer = await self._server.add(identifier + 4, el.Main, f'{name}-TRANSFER', '', VariantType.String)
         el.PickUP = await self._server.add(identifier + 5, el.Main, f'{name}-PICKUP', 0, VariantType.Boolean)
         el.Description = await self._server.add(identifier + 6, el.Main, f'{name}-DES', 'Init', VariantType.String)
+        el.GroupCall = await self._server.add(identifier + 7, el.Main, f'{name}-GroupCall', 0, VariantType.Boolean)
         return el
 
     async def _create_elements(self, parent, config, element_type: OpcUaElementType) -> Dict[str, OpcUaElement]:
@@ -215,20 +216,20 @@ class OpcElementFactory:
 
     async def _create_calling_element(self, parent: Node) -> OpcUaCalling:
         pg = OpcUaCalling()
-        pg.Call_PreRecord_Message = await self._server.add(7000, parent, 'Call_PreRecord_Message', False,
+        pg.Call_PreRecord_Message = await self._server.add(7000, parent, 'Call-PreRecord-Message', False,
                                                            VariantType.Boolean,
                                                            True)
-        pg.Call_PreRecord_Message_No = await self._server.add(7001, parent, 'Call_PreRecord_Message_No', 1,
+        pg.Call_PreRecord_Message_No = await self._server.add(7001, parent, 'Call-PreRecord-Message-No', 1,
                                                               VariantType.Int16, True)
-        pg.Call_PreRecord_Message_Message = await self._server.add(7002, parent, 'Call_PreRecord_Message_Message',
+        pg.Call_PreRecord_Message_Message = await self._server.add(7002, parent, 'Call-PreRecord-Message-Message',
                                                                    'Message', VariantType.String, True)
-        pg.Call_PreRecord_Message_Status = await self._server.add(7003, parent, 'Call_PreRecord_Message_Status', False,
+        pg.Call_PreRecord_Message_Status = await self._server.add(7003, parent, 'Call-PreRecord-Message-Status', False,
                                                                   VariantType.Boolean, True)
-        pg.Call_Group_Calling = await self._server.add(7010, parent, 'Call_Group_Calling', False, VariantType.Boolean,
+        pg.Call_Group_Calling = await self._server.add(7010, parent, 'Call-Group-Calling', False, VariantType.Boolean,
                                                        True)
-        pg.Call_Group_Calling_Group_No = await self._server.add(7011, parent, 'Call_Group_Calling_Group_No', 1,
+        pg.Call_Group_Calling_Group_No = await self._server.add(7011, parent, 'Call-Group-Calling-Group-No', 1,
                                                                 VariantType.Int16, True)
-        pg.Call_Group_Calling_Status = await self._server.add(7012, parent, 'Call_Group_Calling_Status', False,
+        pg.Call_Group_Calling_Status = await self._server.add(7012, parent, 'Call-Group-Calling-Status', False,
                                                               VariantType.Boolean, True)
         return pg
 

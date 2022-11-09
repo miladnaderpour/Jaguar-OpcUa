@@ -20,6 +20,7 @@ class OpcUaElement:
     PickUP: Node = None
     Confirm: Node = None
     Description: Node = None
+    GroupCall: Node = None
 
     chan: str = ''
 
@@ -34,7 +35,7 @@ class OpcUaElement:
 
     def get_nodes(self) -> [Node]:
         return [self.Call, self.PickUP,
-                self.Confirm]
+                self.Confirm, self.GroupCall]
 
     def get_pager_nodes(self) -> [Node]:
         return [self.Call]

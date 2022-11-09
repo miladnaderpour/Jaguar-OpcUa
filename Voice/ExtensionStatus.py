@@ -2,7 +2,9 @@ from enum import Enum
 
 
 class ExtensionStatus(Enum):
-    UnReachable = 16
     OnHook = 1
-    Ringing = 4
     Up = 2
+    Ringing = 4
+    OnHold = 8
+    UnReachable = 16
+

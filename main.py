@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from Core.Jaguar import Jaguar
@@ -46,5 +47,11 @@ async def main():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    jaguar = Jaguar()
-    asyncio.run(jaguar.start(), debug=True)
+    try:
+        jaguar = Jaguar()
+        asyncio.run(jaguar.start(), debug=True)
+    except KeyboardInterrupt:
+        print('Interrupted')
+        sys.exit(0)
+
+
