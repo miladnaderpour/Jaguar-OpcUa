@@ -41,7 +41,11 @@ async def on_shutdown(mngr: Manager):
 
 
 def get_channel_extension(channel: str):
-    return channel.split("/")[1].split("-")[0]
+    g = channel.split("/")
+    if g[0] == 'Local':
+        q = g[1].split("@")[1].split("-")
+        return f'{q[0]}-{q[1]}'
+    return g[1].split("-")[0]
 
 
 class SoftSwitchServer:
@@ -154,6 +158,46 @@ class SoftSwitchServer:
         self._logger.info('action status: %s' % str(a.success))
         self._logger.info('end of redirecting channel %s' % channel)
 
+    async def pickup(self, channel: string, to):
+        self._logger.info('("Pickup Call")  channel  %s to %s', channel, to)
+        action = {
+            'Action': 'Redirect',
+            'Channel': channel,
+            'WaitTime': 2,
+            'CallerID': '',
+            'Exten': '%s' % to,
+            'Timeout ': 2,
+            'Context': 'Pickup-Call',
+            'Priority': 1,
+            'Async': True,
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('action status: %s' % str(a.success))
+        self._logger.info('end of redirecting channel %s' % channel)
+
+    async def callGroup(self, extensions: [str]):
+        self._logger.info('Starting Calling Group ...')
+        for ext in extensions:
+            self._logger.info('Start Call to %s', ext)
+            action = {
+                'Action': 'Originate',
+                'Channel': 'Local/1@CallGroup-Start',
+                'WaitTime': 1,
+                'CallerID': 'Call Group',
+                'Exten': '1',
+                'Timeout ': 30,
+                'Context': 'CallGroup-Call',
+                'Priority': 1,
+                'Async': True,
+                'Variable': 'var1=%s' % ext
+            }
+            a: Message = await self._manager.send_action(action, False)
+            self._logger.info('action status: %s' % str(a))
+            # self._logger.info('action status: %s' % str(a.success))
+            # self._logger.info('action id is: %s' % a.action_id)
+            self._logger.info('Finishing Calling Group!')
+            await asyncio.sleep(1)
+
     async def setvar(self, name, value):
         self._logger.info('Setting Global Variable %s to %s', name, value)
         action = {
@@ -164,58 +208,46 @@ class SoftSwitchServer:
         a: Message = await self._manager.send_action(action, False)
         self._logger.info('action status: %s' % str(a.success))
 
-    async def paging_live(self, extensions: [str]):
-        self._logger.info(' start Live Paging...')
+    async def paging_activate_pager(self, extensions: [str], grp):
+        self._logger.info('Activating Paging For Group: %s', grp)
         for ext in extensions:
-            self._logger.info('Start Pager %s', ext)
+            self._logger.info('Activating Pager %s', ext)
             action = {
                 'Action': 'Originate',
-                'Channel': 'Local/1@Paging-pager',
-                'WaitTime': 2,
+                'Channel': f'Local/{grp}@Paging-ActivatePager',
+                'WaitTime': 1,
                 'CallerID': 'Paging...',
-                'Exten': '1',
                 'Timeout ': 2,
-                'Context': 'Paging-Start',
-                'Priority': 1,
                 'Async': True,
                 'Variable': 'var1=%s' % ext
             }
             a: Message = await self._manager.send_action(action, False)
-            # self._logger.info('action status: %s' % str(a.success))
-            # self._logger.info('action id is: %s' % a.action_id)
-            self._logger.info('end of Live Paging')
-            await asyncio.sleep(1)
+            self._logger.info(a)
+        self._logger.info('Activating Finished For Group: %s', grp)
 
-    async def paging_live_master(self, extension):
-        self._logger.info(' start Live Paging master...')
-        self._logger.info('Start Master Pager %s', extension)
+    async def paging_deactivate_pager(self, grp):
+        self._logger.info('stopping Paging for %s', grp)
+        action = {
+            'Action': 'ConfbridgeKick',
+            'Conference': grp,
+            'Channel': 'all',
+            'Async': True,
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('End of Stopping Paging %s', grp)
+
+    async def paging_active_master(self, extension, grp):
+        self._logger.info('Activating Operator Station | %s', extension)
         action = {
             'Action': 'Originate',
-            'Channel': 'Local/1@Paging-Master',
+            'Channel': f'Local/{grp}@Paging-Master',
             'WaitTime': 2,
-            'CallerID': 'Paging...',
-            'Exten': '1',
-            'Timeout ': 2,
-            'Context': 'Paging-Start',
-            'Priority': 1,
+            'CallerID': 'Live Paging',
             'Async': True,
             'Variable': 'var1=%s' % extension
         }
-        a: Message = await self._manager.send_action(action, False)
-        self._logger.info('action status: %s' % str(a.success))
-        self._logger.info('action id is: %s' % a.action_id)
-        self._logger.info('end of Live Master Paging')
-
-    async def paging_stop_live(self):
-        self._logger.info('Stop Live Paging...')
-        action = {
-            'Action': 'Command',
-            'Command': 'confbridge kick 8 all'
-        }
-        a: Message = await self._manager.send_action(action, False)
-        self._logger.info('action status: %s' % str(a.success))
-        self._logger.info('action id is: %s' % a.action_id)
-        self._logger.info('end of Stop Live Paging...')
+        await self._manager.send_action(action, False)
+        self._logger.info('Activating Operator Station has been finished')
 
     async def paging_live_test(self):
         self._logger.info(' start Live Paging test ...')
@@ -234,22 +266,34 @@ class SoftSwitchServer:
         self._logger.info('action id is: %s' % a.action_id)
         self._logger.info('end of Live Paging')
 
-    async def broadcast_message(self, message_no: str, is_admin: bool = False):
-        self._logger.info(' start broadcast message ...')
+    async def paging_broadcast_message(self, grp, message: str, is_admin: bool = False):
+        self._logger.info('Start broadcast message ...')
         action = {
             'Action': 'Originate',
-            'Channel': 'Local/1@Paging-app',
-            'WaitTime': 15000,
+            'Channel': f'Local/{grp}@Paging-app',
+            'WaitTime': 1000,
             'CallerID': 'Paging...',
             'Application': 'Playback',
-            'Data': '%s' % message_no,
+            'Data': '%s' % message,
             'Async': True,
             'Variable': 'is_admin=%s' % is_admin
         }
-        a: Message = await self._manager.send_action(action, False)
-        # self._logger.info('action status: %s' % str(a.success))
-        # self._logger.info('action id is: %s' % a.action_id)
-        self._logger.info('end of message broadcasting')
+        await self._manager.send_action(action, False)
+        self._logger.info('End of message broadcasting')
+
+    async def paging_automatic_message(self, grp, message: str):
+        self._logger.info('Start Automatic Paging For %s', grp)
+        action = {
+            'Action': 'Originate',
+            'Channel': f'Local/{grp}@Paging-autoapp',
+            'WaitTime': 1000,
+            'CallerID': 'Paging...',
+            'Application': 'Playback',
+            'Data': '%s' % message,
+            'Async': True
+        }
+        await self._manager.send_action(action, False)
+        self._logger.info('End of message automatic broadcasting')
 
     async def get_contacts(self):
         self._logger.info('get contact status')
@@ -306,20 +350,20 @@ class SoftSwitchServer:
                 event = 'End'
             case 'ConfbridgeJoin':
                 channel = get_channel_extension(message.Channel)
-                self._logger.info('Conf Bridge Info (Join): channel %s joined to %s Channels: %s Conference:%s - ',
+                self._logger.info('Conf Bridge Info (Join): channel %s joined to %s Channels: %s Conference:%s',
                                   channel, message.BridgeName, num, message.Conference)
                 event = 'Join'
 
             case 'ConfbridgeLeave':
                 channel = get_channel_extension(message.Channel)
-                self._logger.info('Conf Bridge Info (Join): channel %s joined to %s Channels: %s Conference:%s - ',
+                self._logger.info('Conf Bridge Info (Leave): channel %s Leave %s  Channels: %s Conference:%s',
                                   channel, message.BridgeName, num, message.Conference)
                 event = 'Leave'
             case _:
                 event = ''
 
         for callback in self._on_conference_status_changed_subscribers:
-            await callback(event, num, channel)
+            await callback(event, num, message.Conference, channel)
 
     async def _queue_status_changed(self, manager: Manager, message: Message):
         self._logger.info('Queue Event')

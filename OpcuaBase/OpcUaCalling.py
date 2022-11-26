@@ -13,9 +13,9 @@ class OpcUaCalling:
     Call_PreRecord_Message_Message: Node
     Call_PreRecord_Message_Status: Node
 
-    Call_Group_Calling: Node
-    Call_Group_Calling_Group_No: Node
-    Call_Group_Calling_Status: Node
+    Call_CallGroup_Calling: Node
+    Call_CallGroup_Status: Node
+    Call_CallGroup_Reset: Node
 
     PreRecordedMessages: Dict[int, OpcUaPreRecordedMessage]
 
@@ -28,8 +28,8 @@ class OpcUaCalling:
     def get_nodes(self):
         return [self.Call_PreRecord_Message,
                 self.Call_PreRecord_Message_No,
-                self.Call_Group_Calling,
-                self.Call_Group_Calling_Group_No]
+                self.Call_CallGroup_Calling,
+                self.Call_CallGroup_Reset]
 
     async def set_announcement(self, val):
         await self.Call_PreRecord_Message_Status.set_value(val, VariantType.Boolean)

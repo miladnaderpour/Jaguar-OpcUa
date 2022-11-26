@@ -1,9 +1,11 @@
 import logging
-from typing import Dict
+from asyncio import Task
+from typing import Dict, List
 
 from asyncua import Node
 from asyncua.ua import VariantType
 
+from OpcuaBase.OpcUaPagingAutomatic import OpcUaPagingAutomaticCommand
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
 from OpcuaBase.OpcUaPreRecordedMessage import OpcUaPreRecordedMessage
 
@@ -29,6 +31,19 @@ class OpcUaPaging:
     Semiautomatic_Paging_No_Repetitions: Node
     Semiautomatic_Paging_Delay: Node
     Semiautomatic_Paging_Repetition_Status: Node
+    Semiautomatic_Paging_Keep_Alive: bool
+    Semiautomatic_Paging_Remain: int
+    Semiautomatic_Paging_Delay_Time: int
+
+    Automatic_Paging: Node
+    Automatic_Paging_Status: Node
+    Automatic_Paging_Pause: Node
+    Automatic_Paging_Commands: Dict[str, OpcUaPagingAutomaticCommand]
+    Automatic_Paging_Messages: Dict[int, OpcUaPreRecordedMessage]
+    Automatic_Paging_Active_Pagers: Dict[int, List[str]]
+    Automatic_Paging_Task: Task
+    Automatic_Paging_Keep_Alive: bool
+    Automatic_Paging_Pause: bool
 
     PreRecordedMessages: Dict[int, OpcUaPreRecordedMessage]
 
@@ -38,16 +53,20 @@ class OpcUaPaging:
     Paging_APP_Live_Status: bool = False
     Paging_APP_Broadcast_Status: bool = False
     Paging_APP_Semi_Automatic_Status: bool = False
+    Paging_APP_Automatic_Status: bool = False
 
     Paging_APP_Live_New_Status: bool = False
     Paging_APP_Broadcast_New_Status: bool = False
     Paging_APP_Semi_Automatic_New_Status: bool = False
+    Paging_APP_Automatic_New_Status: bool = False
 
     Paging_APP_Broadcast_FileName: str = ''
 
     def __init__(self):
         self.Zones = {}
         self.PreRecordedMessages = {}
+        self.Automatic_Paging_Commands = {}
+        self.Automatic_Paging_Messages = {}
         self._logger = logging.getLogger('Jaguar-Paging')
 
     def get_nodes(self):
@@ -55,7 +74,9 @@ class OpcUaPaging:
                 self.Live_Test,
                 self.Broadcasting_Message,
                 self.Semiautomatic_Paging,
-                self.Broadcasting_Message_No]
+                self.Broadcasting_Message_No,
+                self.Automatic_Paging,
+                self.Automatic_Paging_Pause]
 
     def get_zones(self):
         x = []
@@ -101,6 +122,10 @@ class OpcUaPaging:
             await self._set_semi_automatic_status(True)
             self.Paging_APP_Semi_Automatic_New_Status = False
             return True
+        elif self.Paging_APP_Automatic_New_Status:
+            self._logger.info('Updating Paging Status to Automatic Broadcasting')
+            await self._set_paging_status(4, 'Automatic Broadcasting')
+            await self._set_automatic_status(True)
         else:
             self._logger.info('Updating Paging Status to Ready...')
             await self._set_paging_status(1, 'Ready...')
@@ -135,6 +160,12 @@ class OpcUaPaging:
             await self.Semiautomatic_Paging_Status.set_value(status, VariantType.Boolean)
             await self.Semiautomatic_Paging.set_value(status, VariantType.Boolean)
 
+    async def _set_automatic_status(self, status: bool):
+        self._logger.info('Set Automatic Paging Status - Paging_APP_Automatic_Status :%s Status:%s',
+                          self.Paging_APP_Live_Status, status)
+        if self.Paging_APP_Automatic_Status != status:
+            self.Paging_APP_Automatic_Status = status
+
     async def set_pre_recorded_message(self):
         mm = await self.Broadcasting_Message_No.get_value()
         if mm in self.PreRecordedMessages.keys():
@@ -144,10 +175,12 @@ class OpcUaPaging:
 
     def log_status(self):
         self._logger.info('Paging_APP_Status = %s', self.Paging_APP_Status)
-        self._logger.info('Paging_APP_Live_Status = %s New Status=(%s)', self.Paging_APP_Status,
+        self._logger.info('Paging_APP_Live_Status = %s New Status=(%s)', self.Paging_APP_Live_Status,
                           self.Paging_APP_Live_New_Status)
         self._logger.info('Paging_APP_Broadcast_Status = %s New Status=(%s)', self.Paging_APP_Broadcast_Status,
                           self.Paging_APP_Broadcast_New_Status)
         self._logger.info('Paging_APP_Semi_Automatic_Status = %s New Status=(%s)',
                           self.Paging_APP_Semi_Automatic_Status,
                           self.Paging_APP_Semi_Automatic_New_Status)
+        self._logger.info('Paging_APP_Automatic_Status = %s New Status=(%s)', self.Paging_APP_Automatic_Status,
+                          self.Paging_APP_Automatic_New_Status)

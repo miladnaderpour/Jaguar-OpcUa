@@ -12,6 +12,7 @@ from OpcuaBase.OpcUaElement import OpcUaElement
 from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaElementType import OpcUaElementType
 from OpcuaBase.OpcUaPaging import OpcUaPaging
+from OpcuaBase.OpcUaPagingAutomatic import OpcUaPagingAutomaticCommand
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
 from OpcuaBase.OpcUaParameter import OpcUaParameter
 from OpcuaBase.OpcUaPreRecordedMessage import OpcUaPreRecordedMessage
@@ -21,6 +22,13 @@ def get_element_config(config: str) -> [str, str, str]:
     sp = str(config).split(',')
     if len(sp) == 3:
         return [sp[0], sp[1], sp[2]]
+    return [config, 0, '']
+
+
+def get_paging_auto_message_config(config: str) -> [str, int, str]:
+    sp = str(config).split(',')
+    if len(sp) == 3:
+        return [sp[0], int(sp[1]), sp[2]]
     return [config, 0, '']
 
 
@@ -91,7 +99,9 @@ class OpcElementFactory:
         el.Transfer = await self._server.add(identifier + 4, el.Main, f'{name}-TRANSFER', '', VariantType.String)
         el.PickUP = await self._server.add(identifier + 5, el.Main, f'{name}-PICKUP', 0, VariantType.Boolean)
         el.Description = await self._server.add(identifier + 6, el.Main, f'{name}-DES', 'Init', VariantType.String)
-        el.GroupCall = await self._server.add(identifier + 7, el.Main, f'{name}-GroupCall', 0, VariantType.Boolean)
+        el.CallGroup = await self._server.add(identifier + 7, el.Main, f'{name}-CallGroup', 0, VariantType.Boolean)
+        el.CallGroupStatus = await self._server.add(identifier + 8, el.Main, f'{name}-CallGroup-ST', 0,
+                                                    VariantType.Boolean)
         return el
 
     async def _create_elements(self, parent, config, element_type: OpcUaElementType) -> Dict[str, OpcUaElement]:
@@ -189,13 +199,51 @@ class OpcElementFactory:
                                                                VariantType.Int16, True)
         pg.Semiautomatic_Paging_Repetition_Status = await self._server.add(6024, parent,
                                                                            'Semiautomatic-Paging-Repetition-Status',
-                                                                           'Stand By...', VariantType.String, True)
+                                                                           '0', VariantType.String, False)
+
+        pg.Automatic_Paging = await self._server.add(6025, parent, 'Automatic-Paging', False,
+                                                     VariantType.Boolean, True)
+
+        pg.Automatic_Paging_Status = await self._server.add(6026, parent, 'Automatic-Paging-Status', False,
+                                                            VariantType.Boolean, False)
+
+        pg.Automatic_Paging_Pause = await self._server.add(6027, parent, 'Automatic-Paging-Pause', False,
+                                                           VariantType.Boolean, True)
 
         return pg
+
+    async def _create_paging_automatic_message(self, message_config, parent: Node, paging: OpcUaPaging):
+        idx = 6601
+        self._logger.info('Add Paging Automatic Message Parameters')
+        for cnf in message_config:
+            self._logger.info('Adding Paging Message %s ', cnf)
+            [c, index, ext] = get_paging_auto_message_config(message_config[cnf])
+            self._logger.info(' Message Config : %s,%s,%s ', c, index, ext)
+            if c in paging.Automatic_Paging_Commands:
+                self._logger.info('Add Automatic Message %s Node to server', cnf)
+                n = await self._server.add(idx, parent, cnf, 1, VariantType.Int16, True)
+                if c in paging.Automatic_Paging_Commands.keys():
+                    self._logger.info('Add Message %s Node To CMD:%s Bit:%s', cnf, c, index)
+                    g = paging.Automatic_Paging_Commands[c]
+                    g.Add(index, cnf, ext, n)
+                    idx += 1
+
+    async def _create_paging_automatic_commands(self, command_config, message_config, parent: Node,
+                                                paging: OpcUaPaging):
+        idx = 6201
+        for z in command_config:
+            n = await self._server.add(idx, parent, z, 0, VariantType.Byte)
+            cmd = OpcUaPagingAutomaticCommand(z, n)
+            paging.Automatic_Paging_Commands[z] = cmd
+            idx += 1
+        await self._create_paging_automatic_message(message_config, parent, paging)
 
     async def get_paging(self) -> OpcUaPaging:
         config = self._config['Paging Zone']
         config2 = self._config['PreRecordedMessage']
+        config3 = self._config['Pagers Automatic Command']
+        config4 = self._config['Pagers Automatic Message']
+        config5 = self._config['AutomaticPreRecordedMessage']
         parent = await self._server.add_folder('Paging')
         pel = await self._create_paging_element(parent)
         identifier = 6100
@@ -212,6 +260,12 @@ class OpcElementFactory:
                 index = int(y)
                 [title, filename] = get_pre_record_filename(config2[y])
                 pel.PreRecordedMessages[index] = OpcUaPreRecordedMessage(index, title, filename)
+        for w in config5:
+            if config5[w] != '0':
+                index = int(w)
+                [title, filename] = get_pre_record_filename(config5[w])
+                pel.Automatic_Paging_Messages[index] = OpcUaPreRecordedMessage(index, title, filename)
+        await self._create_paging_automatic_commands(config3, config4, parent, pel)
         return pel
 
     async def _create_calling_element(self, parent: Node) -> OpcUaCalling:
@@ -225,12 +279,13 @@ class OpcElementFactory:
                                                                    'Message', VariantType.String, True)
         pg.Call_PreRecord_Message_Status = await self._server.add(7003, parent, 'Call-PreRecord-Message-Status', False,
                                                                   VariantType.Boolean, True)
-        pg.Call_Group_Calling = await self._server.add(7010, parent, 'Call-Group-Calling', False, VariantType.Boolean,
-                                                       True)
-        pg.Call_Group_Calling_Group_No = await self._server.add(7011, parent, 'Call-Group-Calling-Group-No', 1,
-                                                                VariantType.Int16, True)
-        pg.Call_Group_Calling_Status = await self._server.add(7012, parent, 'Call-Group-Calling-Status', False,
-                                                              VariantType.Boolean, True)
+        pg.Call_CallGroup_Calling = await self._server.add(7010, parent, 'Call-CallGroup-Calling', False,
+                                                           VariantType.Boolean, True)
+        pg.Call_CallGroup_Status = await self._server.add(7012, parent, 'Call-CallGroup-Status', False,
+                                                          VariantType.Boolean, False)
+        pg.Call_CallGroup_Reset = await self._server.add(7013, parent, 'Call-CallGroup-Reset', False,
+                                                         VariantType.Boolean, False)
+
         return pg
 
     async def get_calling(self) -> OpcUaCalling:

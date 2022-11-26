@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 
+from Core.CoreLog import CoreLog, Whitelist
 from Core.Jaguar import Jaguar
 from OpcServer.JaguarOpcUaServer import JaguarOpcUaServer
 from Voice.ExtensionStatus import ExtensionStatus
@@ -46,12 +47,17 @@ async def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    # logging.basicConfig(level=logging.INFO,)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(name)-23s]   %(levelname)-8s %(message)s',
+        datefmt='%m-%d %H:%M')
+    for handler in logging.root.handlers:
+        handler.addFilter(Whitelist('Jaguar', 'Jaguar-OpcUaServer', 'Jaguar-SoftSwitchServer', 'Jaguar-Paging',
+                                    'Jaguar-Automatic-Command', 'Jaguar-ElementFactory', 'Jaguar-WebSocket'))
     try:
         jaguar = Jaguar()
         asyncio.run(jaguar.start(), debug=True)
     except KeyboardInterrupt:
         print('Interrupted')
         sys.exit(0)
-
-
