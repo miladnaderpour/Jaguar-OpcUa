@@ -207,9 +207,11 @@ class Jaguar:
 
     async def _change_element_group_status(self, ext, value):
         match value:
-            case 2:
+            case 8:
                 await self.elements_status_group.set_extension_status(ext, True)
             case 4:
+                await self.elements_status_group.set_extension_status(ext, True)
+            case 2:
                 await self.elements_status_group.set_extension_status(ext, True)
             case _:
                 await self.elements_status_group.set_extension_status(ext, False)
@@ -231,12 +233,15 @@ class Jaguar:
         match event:
             case 'Start':
                 self._logger.info('Paging Group %s Started - Num:%s , Channel:%s', conference, num, channel)
-                await self.paging.update_status()
+                if conference == '999':
+                    self.paging.Paging_APP_General_Pager_Group = True
+                    await self.paging.update_status()
             case 'End':
                 self._logger.info('Paging Group %s Finished - Num:%s , Channel:%s', conference, num, channel)
-                await self.paging.Active_Channels.set_value(0, VariantType.Int16)
-                await self.paging.reset_new_status()
-                await self.paging.update_status()
+                if conference == '999':
+                    self.paging.Paging_APP_General_Pager_Group = False
+                    await self.paging.Active_Channels.set_value(0, VariantType.Int16)
+                    await self.paging.update_status()
             case 'Join':
                 self._logger.info('%s Joined To Paging Group %s - Num:%s , ', channel, conference, num)
                 await self.paging.Active_Channels.set_value(int(num), VariantType.Int16)
@@ -390,17 +395,20 @@ class Jaguar:
 
     async def broadcast_manual_stop_other_modes(self):
         self._logger.info('Stop Other broadcasting Modes')
-        if self.paging.Paging_APP_Semi_Automatic_Status:
-            await self.broadcast_semiauto_stop()
-            await asyncio.sleep(2)
+        if self.paging.Paging_APP_General_Pager_Group:
+            if self.paging.Paging_APP_Broadcast_Status:
+                await self.broadcast_manual_stop()
+            else:
+                await self.broadcast_semiauto_stop()
         if self.paging.Paging_APP_Automatic_Status:
+            self._logger.info('Stop Automatic broadcasting Mode')
             await self.broadcast_automatic_pause(True)
-            await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
     async def broadcast_live_start(self):
         self._logger.info('Request for Live paging...')
-        self.paging.Paging_APP_Live_New_Status = True
         await self.broadcast_manual_stop_other_modes()
+        self.paging.Paging_APP_Live_Start_Request = True
         mst = self._get_master_operator()
         if mst is None:
             self._logger.info('Master not found !')
@@ -412,8 +420,9 @@ class Jaguar:
 
     async def broadcast_live_stop(self):
         self._logger.info('Request for stopping Live paging...')
-        self.paging.Paging_APP_Live_New_Status = False
+        self.paging.Paging_APP_Live_Stop_Request = True
         await self._softSwitchServer.paging_deactivate_pager(999)
+        self._logger.info('Automatic broadcasting is:%s', self.paging.Paging_APP_Automatic_Status)
         if self.paging.Paging_APP_Automatic_Status:
             await self.broadcast_automatic_pause(False)
 
@@ -429,34 +438,35 @@ class Jaguar:
         else:
             await self.broadcast_semiauto_clearing()
 
-    async def broadcast_manual_broadcasting_on_live(self):
-        self._logger.info('Request for starting message broadcasting on live...')
-        await self.broadcast_broadcast_message()
-
     async def broadcast_manual_clearing(self):
-        self._logger.info('Manual broadcasting - Clearing')
-        self.paging.Paging_APP_Broadcast_New_Status = False
-        if not self.paging.Paging_APP_Live_Status:
+        self._logger.info('Manual broadcasting - Clearing (Status=%s)',
+                          self.paging.Paging_APP_Broadcast_Status)
+        if self.paging.Paging_APP_Broadcast_Status:
+            self.paging.Paging_APP_Broadcast_Stop_Request = True
             await self._softSwitchServer.paging_deactivate_pager(999)
+            if self.paging.Paging_APP_Automatic_Status:
+                await self.broadcast_automatic_pause(False)
+        self._logger.info('Automatic broadcasting is:%s', self.paging.Paging_APP_Automatic_Status)
 
     async def broadcast_manual_start(self):
         self._logger.info('Request for starting message broadcasting...')
         self._logger.info('message broadcasting - Live Status:%s', self.paging.Paging_APP_Live_Status)
-        self.paging.Paging_APP_Broadcast_New_Status = True
-        if self.paging.Paging_APP_Live_Status:
-            await self.broadcast_manual_broadcasting_on_live()
-            return
-        await self.broadcast_manual_stop_other_modes()
-        mst = self._get_master_operator()
-        ext = self._get_active_zones_extensions()
-        await self._softSwitchServer.paging_activate_pager(ext, 999)
-        await self._softSwitchServer.paging_activate_pager([mst], 999)
-        await self.broadcast_broadcast_message(True)
+        if not self.paging.Paging_APP_Live_Status:
+            await self.broadcast_manual_stop_other_modes()
+            self.paging.Paging_APP_Broadcast_Start_Request = True
+            # mst = self._get_master_operator()
+            ext = self._get_active_zones_extensions()
+            await self._softSwitchServer.paging_activate_pager(ext, 999)
+            # await self._softSwitchServer.paging_activate_pager([mst], 999)
+            await self.broadcast_broadcast_message(True)
+        else:
+            await self.paging.Broadcasting_Message.set_value(False, VariantType.Boolean)
 
     async def broadcast_manual_stop(self):
-        self._logger.info('Request for stopping message broadcasting...')
-        self.paging.Paging_APP_Broadcast_New_Status = False
-        if not self.paging.Paging_APP_Live_Status:
+        self._logger.info('Request for stopping message broadcasting... (Status=%s)',
+                          self.paging.Paging_APP_Broadcast_Status)
+        if self.paging.Paging_APP_Broadcast_Status:
+            self.paging.Paging_APP_Broadcast_Stop_Request = True
             await self._softSwitchServer.paging_deactivate_pager(999)
 
     async def _change_paging_change_pre_record_message(self):
@@ -475,15 +485,18 @@ class Jaguar:
             await self.broadcast_broadcast_message()
         else:
             self._logger.info('SemiAuto broadcasting - Clearing')
-            self.paging.Paging_APP_Semi_Automatic_New_Status = False
+            self.paging.Paging_APP_Semi_Automatic_Stop_Request = True
             self.paging.Semiautomatic_Paging_Keep_Alive = False
-            await self._softSwitchServer.paging_deactivate_pager(999)
+            if self.paging.Paging_APP_General_Pager_Group:
+                await self._softSwitchServer.paging_deactivate_pager(999)
+            if self.paging.Paging_APP_Automatic_Status:
+                await self.broadcast_automatic_pause(False)
 
     async def broadcast_semiauto_start(self):
         self._logger.info('Request for starting message Semi Auto broadcasting...')
-        if not self.paging.Paging_APP_Automatic_Status and not self.paging.Paging_APP_Live_Status \
-                and not self.paging.Paging_APP_Broadcast_Status:
-            self.paging.Paging_APP_Semi_Automatic_New_Status = True
+        if not self.paging.Paging_APP_Live_Status and not self.paging.Paging_APP_Broadcast_Status:
+            await self.broadcast_manual_stop_other_modes()
+            self.paging.Paging_APP_Semi_Automatic_Start_Request = True
             c = await self.paging.Semiautomatic_Paging_No_Repetitions.get_value()
             d = await self.paging.Semiautomatic_Paging_Delay.get_value()
             self.paging.Semiautomatic_Paging_Remain = c
@@ -501,10 +514,9 @@ class Jaguar:
             await self.paging.Semiautomatic_Paging.set_value(False, VariantType.Boolean)
 
     async def broadcast_semiauto_stop(self):
-        if not self.paging.Paging_APP_Automatic_Status and not self.paging.Paging_APP_Live_Status \
-                and not self.paging.Paging_APP_Broadcast_Status:
+        if self.paging.Paging_APP_Semi_Automatic_Status:
             self._logger.info('Request for stopping message Semi Auto broadcasting...')
-            self.paging.Paging_APP_Semi_Automatic_New_Status = False
+            self.paging.Paging_APP_Semi_Automatic_Stop_Request = True
             self.paging.Semiautomatic_Paging_Keep_Alive = False
             await self._softSwitchServer.paging_deactivate_pager(999)
 
@@ -539,44 +551,50 @@ class Jaguar:
         self._logger.info('Automatic broadcasting Activating')
         grp_activated = {}
         while self.paging.Automatic_Paging_Keep_Alive and not self.paging.Automatic_Paging_Pause:
-            await self.broadcast_automatic_get_active()
-            for grp in self.paging.Automatic_Paging_Active_Pagers:
-                self._logger.info(
-                    'Activating Group:%s - Pagers:%s', grp, self.paging.Automatic_Paging_Active_Pagers[grp])
-                grp_activated[grp] = grp
-                asyncio.create_task(
-                    self.broadcast_automatic_activate_group_pagers(
-                        grp, self.paging.Automatic_Paging_Active_Pagers[grp]))
-            while self.paging.Automatic_Paging_Keep_Alive and not self.paging.Automatic_Paging_Pause:
-                self._logger.info('Keep Alive Automatic paging')
-                await asyncio.sleep(2)
-            for g in grp_activated:
-                self._logger.info('Stop Automatic broadcasting For %s', g)
-                await self._softSwitchServer.paging_deactivate_pager(g)
+            self.paging.Paging_APP_Automatic_Start_Request = True
+            await self.paging.update_status()
+            if not self.paging.Paging_APP_Live_Status and not self.paging.Paging_APP_Broadcast_Status and \
+                    not self.paging.Paging_APP_Semi_Automatic_Status:
+                await self.broadcast_automatic_get_active()
+                for grp in self.paging.Automatic_Paging_Active_Pagers:
+                    self._logger.info(
+                        'Activating Group:%s - Pagers:%s', grp, self.paging.Automatic_Paging_Active_Pagers[grp])
+                    grp_activated[grp] = grp
+                    asyncio.create_task(
+                        self.broadcast_automatic_activate_group_pagers(
+                            grp, self.paging.Automatic_Paging_Active_Pagers[grp]))
+                while self.paging.Automatic_Paging_Keep_Alive and not self.paging.Automatic_Paging_Pause:
+                    self._logger.info('Keep Alive Automatic paging')
+                    await asyncio.sleep(2)
+                for g in grp_activated:
+                    self._logger.info('Stop Automatic broadcasting For %s', g)
+                    await self._softSwitchServer.paging_deactivate_pager(g)
+            else:
+                self.paging.Automatic_Paging_Pause = True
             while self.paging.Automatic_Paging_Keep_Alive and self.paging.Automatic_Paging_Pause:
                 self._logger.info('Automatic paging - Pause')
-                await asyncio.sleep(5)
+                await asyncio.sleep(2)
+        self.paging.Paging_APP_Automatic_Stop_Request = True
+        await self.paging.update_status()
         self._logger.info('Automatic broadcasting Deactivated')
 
     async def broadcast_automatic_start(self):
         self._logger.info('Starting Automatic broadcasting...')
-        self.paging.Paging_APP_Automatic_New_Status = True
         self.paging.Automatic_Paging_Pause = False
         self.paging.Automatic_Paging_Keep_Alive = True
-        await self.paging.Automatic_Paging_Status.set_value(True, VariantType.Boolean)
         self.paging.Automatic_Paging_Task = asyncio.create_task(self.broadcast_automatic())
 
     async def broadcast_automatic_stop(self):
         self._logger.info('Request for stopping message Automatic broadcasting...')
-        self.paging.Paging_APP_Automatic_New_Status = False
         self.paging.Automatic_Paging_Keep_Alive = False
-        await self.paging.Automatic_Paging_Status.set_value(False, VariantType.Boolean)
         self._logger.info(f'Stop Automatic broadcasting Finished')
 
     async def broadcast_automatic_pause(self, val: bool):
+        self._logger.info('Set Automatic Pause %s - Keep Alive:%s', val, self.paging.Automatic_Paging_Keep_Alive)
         if val and self.paging.Automatic_Paging_Keep_Alive:
             self._logger.info('Request for pausing Automatic broadcasting...')
             self.paging.Automatic_Paging_Pause = True
+            await asyncio.sleep(2)
         elif self.paging.Automatic_Paging_Keep_Alive:
             self._logger.info('Request for resume Automatic broadcasting...')
             self.paging.Automatic_Paging_Pause = False
@@ -591,7 +609,7 @@ class Jaguar:
 
     async def _handle_paging_live_test(self, node: Node, val):
         self._logger.info('Request for Test Live paging...')
-        await self._softSwitchServer.paging_live_test()
+        await self._softSwitchServer.paging_get_active()
         await node.set_value(False, VariantType.Boolean)
 
     async def _handle_paging_message_broadcasting(self, node: Node, val):

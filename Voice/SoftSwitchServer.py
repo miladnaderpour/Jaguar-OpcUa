@@ -295,6 +295,15 @@ class SoftSwitchServer:
         await self._manager.send_action(action, False)
         self._logger.info('End of message automatic broadcasting')
 
+    async def paging_get_active(self):
+        self._logger.info('Get Active Paging Group')
+        action = {
+            'Action': ' ConfbridgeListRooms',
+            'Async': True,
+        }
+        a: Message = await self._manager.send_action(action, False)
+        self._logger.info('End of Getting Active Paging Group')
+
     async def get_contacts(self):
         self._logger.info('get contact status')
         a: Message = await self._manager.send_action({'Action': 'PJSIPShowContacts'}, False)
@@ -359,6 +368,13 @@ class SoftSwitchServer:
                 self._logger.info('Conf Bridge Info (Leave): channel %s Leave %s  Channels: %s Conference:%s',
                                   channel, message.BridgeName, num, message.Conference)
                 event = 'Leave'
+
+            case 'ConfbridgeListRooms':
+                self._logger.info('Conf Bridge Info (List): Conference:%s - Parties:%s', message.Conference,
+                                  message.Parties)
+                num = message.Parties
+                event = 'List'
+
             case _:
                 event = ''
 

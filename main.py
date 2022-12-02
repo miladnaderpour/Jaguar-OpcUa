@@ -51,7 +51,7 @@ if __name__ == '__main__':
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s [%(name)-23s]   %(levelname)-8s %(message)s',
-        datefmt='%m-%d %H:%M')
+        datefmt='%m-%d %H:%M:%S')
     for handler in logging.root.handlers:
         handler.addFilter(Whitelist('Jaguar', 'Jaguar-OpcUaServer', 'Jaguar-SoftSwitchServer', 'Jaguar-Paging',
                                     'Jaguar-Automatic-Command', 'Jaguar-ElementFactory', 'Jaguar-WebSocket'))
