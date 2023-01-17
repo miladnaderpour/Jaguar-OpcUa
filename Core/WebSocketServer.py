@@ -1,11 +1,21 @@
 import asyncio
 import configparser
+import json
 import logging
 from typing import Dict
 
 import websockets
 from websockets.exceptions import ConnectionClosed
 from websockets.legacy.server import WebSocketServerProtocol
+
+
+def _get_message(typ: str, action: str, data: str):
+    msg = {
+        "type": typ,
+        "action": action,
+        "data": data
+    }
+    return msg
 
 
 class WebSocketServer:
@@ -39,3 +49,7 @@ class WebSocketServer:
         self._logger.info('Start socket server on *:%s ' % 4567)
         async with websockets.serve(self._data_received_handler, "", 4567):
             await asyncio.Future()  # run forever
+
+    async def broadcast(self, typ: str, action: str, data: str):
+        self._logger.info("Broadcast %s - %s  Data:%s", typ, action, data)
+        websockets.broadcast(self.Subscribers.values(), json.dumps(_get_message(typ, action, data)))

@@ -1,7 +1,6 @@
 import asyncio
-import datetime
 import logging
-from typing import Dict, List
+from typing import Dict
 
 from asyncua import ua, Node
 from asyncua.common import subscription
@@ -15,6 +14,7 @@ from OpcuaBase.OpcUaElement import OpcUaElement
 from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaParameter import OpcUaParameter
+from OpcuaBase.OpcUaPopup import OpcUaPopup
 from OpcuaBase.OpcUaSubcription import OpcUaSubscriptionHandler
 from Voice.ExtensionStatus import ExtensionStatus
 from Voice.SoftSwitchServer import SoftSwitchServer
@@ -51,6 +51,11 @@ class Jaguar:
         self.calling: OpcUaCalling
         self.calling_subscription: subscription
         self.calling_subscription_handler: OpcUaSubscriptionHandler
+        self.popup: OpcUaPopup
+        self.popup_subscription: subscription
+        self.popup_subscription_handler: OpcUaSubscriptionHandler
+        self.popup_cmd_subscription: subscription
+        self.popup_cmd_subscription_handler: OpcUaSubscriptionHandler
 
     async def _init_elements(self):
         self._logger.info('create opcua elements')
@@ -65,6 +70,8 @@ class Jaguar:
         self.calling = await factory.get_calling()
         self._logger.info('create opcua status groups')
         self.elements_status_group = await factory.get_elements_status_group()
+        self._logger.info('create opcua Popup elements')
+        self.popup = await factory.get_popup()
 
     async def _create_subscriptions(self):
 
@@ -92,6 +99,13 @@ class Jaguar:
         self.calling_subscription_handler = OpcUaSubscriptionHandler()
         self.calling_subscription = await self._opcUaServer.create_data_subscription(self.calling_subscription_handler)
 
+        self._logger.info('Create Popup subscriptions ...')
+        self.popup_subscription_handler = OpcUaSubscriptionHandler()
+        self.popup_subscription = await self._opcUaServer.create_data_subscription(self.popup_subscription_handler)
+        self.popup_cmd_subscription_handler = OpcUaSubscriptionHandler()
+        self.popup_cmd_subscription = await self._opcUaServer.create_data_subscription(
+            self.popup_cmd_subscription_handler)
+
     async def _init_subscription(self):
 
         for el in self.elements:
@@ -112,6 +126,10 @@ class Jaguar:
 
         await asyncio.sleep(2)
 
+        await self._init_popup_subscription()
+
+        await asyncio.sleep(2)
+
         await self._bind_dispatch_callbacks()
 
     async def _init_paging_subscription(self):
@@ -127,6 +145,13 @@ class Jaguar:
 
         for pr in self.parameters:
             await self.parameters_subscription.subscribe_data_change(self.parameters[pr].Value)
+
+    async def _init_popup_subscription(self):
+
+        for cam in self.popup.IPCams:
+            await self.popup_subscription.subscribe_data_change(self.popup.IPCams[cam].get_nodes())
+        for cmd in self.popup.Commands:
+            await self.popup_cmd_subscription.subscribe_data_change(self.popup.Commands[cmd].Node)
 
     async def on_element_data_changed(self, node: Node, val, data: DataChangeNotification):
         bname = await node.read_browse_name()
@@ -182,6 +207,18 @@ class Jaguar:
             zone.Active = val
         self._logger.info('Zone %s Active is  %s', name, self.paging.Zones[name].Active)
 
+    async def on_popup_request_received(self, node: Node, val, data: DataChangeNotification):
+        bname = await node.read_browse_name()
+        [tag, _] = get_element_name(str(bname.Name))
+        self._logger.info('Popup Request %s Received For %s', val, tag)
+        await self._handle_popup_request(tag, node, val)
+
+    async def on_popup_cmd_request_received(self, node: Node, val, data: DataChangeNotification):
+        bname = await node.read_browse_name()
+        cmd = (str(bname.Name))
+        self._logger.info('Popup Command %s Changed Received Value:', cmd, val)
+        await self._handle_popup_command(cmd, node, val)
+
     async def _bind_dispatch_callbacks(self):
         self._logger.info('Bind Subscription Callback Methods')
         self.elements_subscription_handler.on_data_changed(self.on_element_data_changed)
@@ -189,6 +226,8 @@ class Jaguar:
         self.calling_subscription_handler.on_data_changed(self.on_calling_data_changed)
         self.parameters_subscription_handler.on_data_changed(self.on_parameter_data_changed)
         self.paging_zone_subscription_handler.on_data_changed(self.on_paging_zone_selection_changed)
+        self.popup_subscription_handler.on_data_changed(self.on_popup_request_received)
+        self.popup_cmd_subscription_handler.on_data_changed(self.on_popup_cmd_request_received)
 
     async def _init_opcua(self):
         self._logger.info('init OPCUA server...')
@@ -454,10 +493,10 @@ class Jaguar:
         if not self.paging.Paging_APP_Live_Status:
             await self.broadcast_manual_stop_other_modes()
             self.paging.Paging_APP_Broadcast_Start_Request = True
-            # mst = self._get_master_operator()
+            mst = self._get_master_operator()
             ext = self._get_active_zones_extensions()
             await self._softSwitchServer.paging_activate_pager(ext, 999)
-            # await self._softSwitchServer.paging_activate_pager([mst], 999)
+            await self._softSwitchServer.paging_activate_pager([mst], 999)
             await self.broadcast_broadcast_message(True)
         else:
             await self.paging.Broadcasting_Message.set_value(False, VariantType.Boolean)
@@ -635,6 +674,20 @@ class Jaguar:
     async def _handle_paging_automatic_Pause(self, node: Node, val):
         self._logger.info('automatic paging pause changed to %s', val)
         await self.broadcast_automatic_pause(val)
+
+    async def _handle_popup_request(self, tag: str, node: Node, val):
+        if val:
+            self._logger.info('Handling POP-UP Request For Cam %s!', tag)
+            if tag in self.popup.IPCams.keys():
+                cam = self.popup.IPCams[tag]
+                await self._socketServer.broadcast('event', 'POP-UP', tag)
+
+    async def _handle_popup_command(self, command: str, node: Node, val):
+        if val:
+            self._logger.info('Handling POP-UP Command %s!', command)
+            if command in self.popup.Commands.keys():
+                cmd = self.popup.Commands[command]
+                await self._socketServer.broadcast('event', 'POP-UP-Command', command)
 
     async def _init_events(self):
         self._softSwitchServer.on_extension_status_changed(self.extension_status_changed)
