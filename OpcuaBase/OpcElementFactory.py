@@ -12,6 +12,7 @@ from OpcuaBase.OpcUaCamera import OpcUaCamera
 from OpcuaBase.OpcUaElement import OpcUaElement
 from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaElementType import OpcUaElementType
+from OpcuaBase.OpcUaNVR import OpcUaNVR
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaPagingAutomatic import OpcUaPagingAutomaticCommand
 from OpcuaBase.OpcUaPagingZone import OpcUaPagingZone
@@ -50,6 +51,13 @@ def get_pre_record_filename(config: str) -> [str, str]:
     if len(sp) == 2:
         return [sp[0], sp[1]]
     return ['Not Define', '']
+
+
+def get_camera_config(config: str) -> [str, str, str, str, str]:
+    sp = str(config).split(',')
+    if len(sp) == 5:
+        return [sp[0], sp[1], sp[2], sp[3], sp[4]]
+    return [config, 0, '']
 
 
 def get_parameter_configs(config: str) -> [Any, VariantType, int]:
@@ -327,9 +335,9 @@ class OpcElementFactory:
 
     # IP Cams And Popup System Tags
 
-    async def _create_IPCam(self, parent, tag, identifier) -> OpcUaCamera:
+    async def _create_IPCam(self, parent, tag, identifier, nvr, channel) -> OpcUaCamera:
         ident = int(identifier) * 10
-        ipcam = OpcUaCamera(tag, ident)
+        ipcam = OpcUaCamera(tag, ident, nvr, channel)
         ipcam.Main = await parent.add_folder(self._server.idx, f'{tag}')
         ipcam.Status = await self._server.add(ident, ipcam.Main, f'{tag}-ST', 2, VariantType.Byte)
         ipcam.Popup = await self._server.add(ident + 1, ipcam.Main, f'{tag}-RQ', False, VariantType.Boolean)
@@ -344,11 +352,23 @@ class OpcElementFactory:
             identifier = 890000 + len(popup.Commands)
             opc_command.Node = await self._server.add(identifier, parent, cmd, 0, VariantType.Byte)
             popup.Commands[cmd] = opc_command
+            self._logger.info('Create %s  POP UP Command!', cmd)
 
     async def _set_IPCam_Command(self, parent: Node, popup: OpcUaPopup, tag, cmd: str, bit: int):
+        self._logger.info('Set %s to Command %s with index %s', tag, cmd, bit)
         if cmd not in popup.Commands.keys():
             await self._create_IPCam_Command(parent, popup, cmd)
         popup.Commands[cmd].BitMap[bit] = tag
+
+    async def _create_NVR(self, parent: Node, popup: OpcUaPopup):
+        config = self._config['CCTV-NVRs']
+        identifier = 899991
+        for x in config:
+            if config[x] != '0':
+                nvr = OpcUaNVR(x, identifier)
+                nvr.Status = await self._server.add(identifier, parent, f'{x}-ST', True, VariantType.Boolean)
+                identifier += 1
+                popup.NVRs[x] = nvr
 
     async def get_popup(self) -> OpcUaPopup:
         config = self._config['CCTV-Camera']
@@ -356,11 +376,12 @@ class OpcElementFactory:
         popup = OpcUaPopup()
         for x in config:
             if config[x] != '0':
-                [identifier, cmd, bit] = get_element_config(config[x])
+                [identifier, cmd, bit, nvr, channel] = get_camera_config(config[x])
                 if x not in popup.IPCams:
-                    el = await self._create_IPCam(parent, x, identifier)
+                    el = await self._create_IPCam(parent, x, identifier, nvr, int(channel))
                     popup.IPCams[x] = el
-                    await self._set_IPCam_Command(parent, popup, x, cmd, bit)
+                    await self._set_IPCam_Command(parent, popup, x, cmd, int(bit))
                 else:
                     self._logger.error('Camera %s is exist in Dictionary', x)
+        await self._create_NVR(parent, popup)
         return popup

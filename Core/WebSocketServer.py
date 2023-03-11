@@ -11,9 +11,9 @@ from websockets.legacy.server import WebSocketServerProtocol
 
 def _get_message(typ: str, action: str, data: str):
     msg = {
-        "type": typ,
-        "action": action,
-        "data": data
+        "Type": typ,
+        "Action": action,
+        "Data": data
     }
     return msg
 

@@ -15,6 +15,7 @@ from OpcuaBase.OpcUaElementGroupStatus import OpcUaElementGroupStatus
 from OpcuaBase.OpcUaPaging import OpcUaPaging
 from OpcuaBase.OpcUaParameter import OpcUaParameter
 from OpcuaBase.OpcUaPopup import OpcUaPopup
+from OpcuaBase.OpcUaPopupCmd import OpcUaPopupCmd
 from OpcuaBase.OpcUaSubcription import OpcUaSubscriptionHandler
 from Voice.ExtensionStatus import ExtensionStatus
 from Voice.SoftSwitchServer import SoftSwitchServer
@@ -216,7 +217,7 @@ class Jaguar:
     async def on_popup_cmd_request_received(self, node: Node, val, data: DataChangeNotification):
         bname = await node.read_browse_name()
         cmd = (str(bname.Name))
-        self._logger.info('Popup Command %s Changed Received Value:', cmd, val)
+        self._logger.info('Popup Command %s Changed Received Value: %s', cmd, val)
         await self._handle_popup_command(cmd, node, val)
 
     async def _bind_dispatch_callbacks(self):
@@ -680,14 +681,21 @@ class Jaguar:
             self._logger.info('Handling POP-UP Request For Cam %s!', tag)
             if tag in self.popup.IPCams.keys():
                 cam = self.popup.IPCams[tag]
-                await self._socketServer.broadcast('event', 'POP-UP', tag)
+                await self._socketServer.broadcast('event', 'POP-UP', f'{tag},{cam.Nvr},{cam.Channel}')
+                await node.set_value(False, VariantType.Boolean)
 
     async def _handle_popup_command(self, command: str, node: Node, val):
-        if val:
-            self._logger.info('Handling POP-UP Command %s!', command)
-            if command in self.popup.Commands.keys():
-                cmd = self.popup.Commands[command]
-                await self._socketServer.broadcast('event', 'POP-UP-Command', command)
+        self._logger.info('Handling POP-UP Command %s!', command)
+        if command in self.popup.Commands.keys():
+            cmd = self.popup.Commands[command]
+            self._logger.info('Handling POP-UP Command - Get Command %s!', cmd.Name)
+            tags = await cmd.GetActiveTags()
+            self._logger.info('Handling POP-UP-CMD Get Tags! %s', ','.join(tags))
+            cams = self.popup.GetIPCams(tags)
+            self._logger.info('Handling POP-UP-CMD Activate %s Cams!', len(cams))
+            if len(cams) > 0:
+                data = '|'.join(f'{j.Tag},{j.Nvr},{j.Channel}' for j in cams)
+                await self._socketServer.broadcast('event', 'POP-UP-CMD', data)
 
     async def _init_events(self):
         self._softSwitchServer.on_extension_status_changed(self.extension_status_changed)

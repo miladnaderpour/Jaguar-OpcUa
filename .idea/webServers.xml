@@ -10,7 +10,14 @@
         </fileTransfer>
       </webServer>
       <webServer id="3dc0876a-d8a9-4f61-9046-85f5589cca32" name="TU13">
-        <fileTransfer accessType="SFTP" host="192.168.60.81" port="22" sshConfigId="0fa6177c-c925-47aa-8dbb-99eb80441cbb" sshConfig="root@192.168.60.81:22 password">
+        <fileTransfer accessType="SFTP" host="10.13.50.11" port="22" sshConfigId="0fa6177c-c925-47aa-8dbb-99eb80441cbb" sshConfig="root@10.13.50.11:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="8f67e296-74bd-4c50-b1da-5809ed54a683" name="TU16">
+        <fileTransfer accessType="SFTP" host="10.16.50.11" port="22" sshConfigId="a6b2d8fb-2298-4473-8c53-c43dd609b749" sshConfig="root@10.16.50.11:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
